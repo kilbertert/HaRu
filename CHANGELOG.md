@@ -2,7 +2,7 @@
 
 本项目遵循语义化版本。发布日期以 GitHub Release 为准。
 
-## [Unreleased]
+## [2.5.0] - 2026-10-14
 
 ### Added
 
