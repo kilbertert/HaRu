@@ -38,18 +38,25 @@ class Flule34App extends ConsumerWidget {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           routerConfig: router,
-          builder: (context, child) => HanimeCloudflareGate(
-            child: VideoPreviewOverlay(
-              navigationListenable: router.routerDelegate,
-              bottomInsetBuilder: (context) {
-                final path =
-                    router.routerDelegate.currentConfiguration.uri.path;
-                if (!_showsBottomNavigation(path)) {
-                  return 0;
-                }
-                return NavigationBarTheme.of(context).height ?? 80;
-              },
-              child: child ?? const SizedBox.shrink(),
+          // 这两个浮层挂在 MaterialApp.builder 上，而 builder 子树位于
+          // Router/Navigator 之上——那里没有 Overlay。弹窗内部含 Tooltip
+          // 之类需要 Overlay 的组件，缺 Overlay 时 debug 模式会直接抛错并
+          // 用红屏替换整棵子树。Overlay.wrap 只补一个空 Overlay 供这些
+          // 组件挂载，不改变现有布局与命中测试。
+          builder: (context, child) => Overlay.wrap(
+            child: HanimeCloudflareGate(
+              child: VideoPreviewOverlay(
+                navigationListenable: router.routerDelegate,
+                bottomInsetBuilder: (context) {
+                  final path =
+                      router.routerDelegate.currentConfiguration.uri.path;
+                  if (!_showsBottomNavigation(path)) {
+                    return 0;
+                  }
+                  return NavigationBarTheme.of(context).height ?? 80;
+                },
+                child: child ?? const SizedBox.shrink(),
+              ),
             ),
           ),
         );

@@ -73,6 +73,8 @@ dev_dependencies:
   build_runner: 2.15.1
   drift_dev: 2.34.0
   video_player_platform_interface: 6.9.0
+  # 测试里用替身平台驱动 WebView 弹窗（与 video_player 同一套路）。
+  webview_flutter_platform_interface: 2.15.1
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
