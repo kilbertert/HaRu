@@ -121,7 +121,10 @@ final class Porn91Parser {
 
   /// 文档内 `<style>` 声明为 `display: none` 的类名。
   ///
-  /// 只按整类隐藏判断，不做优先级求值：站点只用这一种形态隐藏陷阱卡片。
+  /// 只按整类隐藏判断，不做优先级求值，也不求值媒体查询与选择器特异性：
+  /// 站点只用这一种形态隐藏陷阱卡片。若站点改成按视口隐藏（`@media`）或
+  /// 提高特异度，这里会多丢或少丢卡片，届时按 docs/porn91_api_endpoints.md
+  /// §3.1 对照真实页面重写这一步即可。
   static Set<String> _hiddenClasses(dom.Document document) {
     final hidden = <String>{};
     for (final style in document.querySelectorAll('style')) {
