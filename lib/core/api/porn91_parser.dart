@@ -33,6 +33,12 @@ final class Porn91Parser {
   );
   static final _mediaIdPattern = RegExp(r'/(\d+)\.mp4(?:[?#]|$)');
   static final _thumbIdPattern = RegExp(r'/thumb/(\d+)\.');
+  static final _cssRulePattern = RegExp(r'([^{}]+)\{([^}]*)\}');
+  static final _displayNonePattern = RegExp(
+    r'display\s*:\s*none',
+    caseSensitive: false,
+  );
+  static final _classSelectorPattern = RegExp(r'\.([A-Za-z0-9_-]+)');
   static final _bareTitlePattern = RegExp(
     r'^(?:www\.)?(?:91porn|9p47q)(?:\.com)?$',
     caseSensitive: false,
@@ -94,15 +100,50 @@ final class Porn91Parser {
   }
 
   /// 列表页与详情页共用的视频卡片（`a[href*=view_video.php]`）。
+  ///
+  /// 站点在列表页正文之后追加了一批 `col-lg-8` 卡片，并在页面末尾用
+  /// `<style>.col-lg-8 { display: none; }</style>` 把它们隐藏起来（陷阱：
+  /// 它们**成组**地复制真实卡片，整组内 viewkey、封面、标题互相错位，
+  /// 组内自洽，抓取方无法只靠页面内容识别）。浏览器按 CSS 隐藏它们，
+  /// 解析器必须做同样的事，否则列表展示的封面/标题与点进去的视频对不上。
   static List<VideoItem> videoList(String source) {
     final document = html_parser.parse(source);
+    final hiddenClasses = _hiddenClasses(document);
     final result = <String, VideoItem>{};
     for (final link in document.querySelectorAll('a[href*="view_video.php"]')) {
+      if (_isHidden(link, hiddenClasses)) continue;
       final video = _videoFromLink(link);
       if (video == null) continue;
       result.putIfAbsent(video.id, () => video);
     }
     return result.values.toList(growable: false);
+  }
+
+  /// 文档内 `<style>` 声明为 `display: none` 的类名。
+  ///
+  /// 只按整类隐藏判断，不做优先级求值：站点只用这一种形态隐藏陷阱卡片。
+  static Set<String> _hiddenClasses(dom.Document document) {
+    final hidden = <String>{};
+    for (final style in document.querySelectorAll('style')) {
+      for (final rule in _cssRulePattern.allMatches(style.text)) {
+        if (!_displayNonePattern.hasMatch(rule.group(2)!)) continue;
+        for (final selector in _classSelectorPattern.allMatches(
+          rule.group(1)!,
+        )) {
+          hidden.add(selector.group(1)!);
+        }
+      }
+    }
+    return hidden;
+  }
+
+  /// 元素自身或任一祖先是否带被隐藏的类。
+  static bool _isHidden(dom.Element element, Set<String> hiddenClasses) {
+    if (hiddenClasses.isEmpty) return false;
+    for (dom.Element? node = element; node != null; node = node.parent) {
+      if (node.classes.any(hiddenClasses.contains)) return true;
+    }
+    return false;
   }
 
   /// 详情页信息。当前站点详情页没有可信的“相关视频”区块，

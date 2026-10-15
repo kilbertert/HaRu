@@ -11,11 +11,13 @@
   python tool/audit_porn91_endpoints.py --viewkey 1716989600   # 指定详情页样本
 
 为什么单独写这个脚本：
-  本站与其它站点不同，有两条会"静默返回错误内容"的行为，普通断言抓不到：
+  本站与其它站点不同，有三条会"静默返回错误内容"的行为，普通断言抓不到：
   1. 会话未预热时，详情页会整页换成**另一个视频**（HTTP 200，海报与播放源
      一起被替换成同一个无关编号），因此必须先请求一次 v.php 列表页预热；
-  2. 直链带 e=<unix 秒> 过期参数（约 15 分钟），过期后必须重新抓页面。
-  脚本对这两条都做显式验证，并把"预热前后"的编号差异打印出来。
+  2. 直链带 e=<unix 秒> 过期参数（约 15 分钟），过期后必须重新抓页面；
+  3. 列表页正文之后追加了一组被 CSS 隐藏的卡片，把真实卡片整组打乱后复制，
+     只按链接全量抓取会让列表与点进去的视频对不上（见 check_colocated）。
+  脚本对这三条都做显式验证，并把"预热前后"的编号差异打印出来。
 """
 
 import argparse
@@ -251,6 +253,68 @@ def _viewkeys(body):
     return set(VIEWKEY_RE.findall(body))
 
 
+STYLE_BLOCK_RE = re.compile(r"<style[^>]*>(.*?)</style>", re.S | re.I)
+CSS_RULE_RE = re.compile(r"([^{}]+)\{([^}]*)\}")
+DISPLAY_NONE_RE = re.compile(r"display\s*:\s*none", re.I)
+CLASS_SELECTOR_RE = re.compile(r"\.([A-Za-z0-9_-]+)")
+COLUMN_OPEN_RE = re.compile(r'<div class="(col-xs-12[^"]*)"')
+
+
+def _hidden_classes(body):
+    """文档内 <style> 声明为 display: none 的类名（与客户端解析器同一规则）。"""
+    hidden = set()
+    for block in STYLE_BLOCK_RE.findall(body):
+        for selector, declarations in CSS_RULE_RE.findall(block):
+            if DISPLAY_NONE_RE.search(declarations):
+                hidden.update(CLASS_SELECTOR_RE.findall(selector))
+    return hidden
+
+
+def _visible_viewkeys(body):
+    """只统计浏览器里真正可见的卡片，模拟客户端 Porn91Parser.videoList。"""
+    hidden = _hidden_classes(body)
+    visible = []
+    for match in COLUMN_OPEN_RE.finditer(body):
+        classes = set(match.group(1).split())
+        if classes & hidden:
+            continue
+        found = VIEWKEY_RE.search(body, match.end())
+        if found:
+            visible.append(found.group(1))
+    return visible
+
+
+def check_colocated():
+    """列表页展示的卡片必须与浏览器可见的那一组一致。
+
+    站点在正文之后追加一组 `col-lg-8` 卡片并用内联 <style> 隐藏它们；这组
+    卡片把真实卡片整组打乱后复制，组内 viewkey/封面/标题互相错位。只按
+    `view_video.php` 全量抓取会把它们算进来，列表就会与点进去的视频对不上。
+
+    这组断言是 2.5.1 之后补的：旧版脚本用 `set(re.findall(...))` 统计条目数，
+    陷阱卡片里大量重复的 viewkey 在去重后正好抵消，因此**一直显示 PASS**。
+    """
+    body = fetch("/v.php", {"category": "hot", "viewtype": "basic"})[1]
+    raw = VIEWKEY_RE.findall(body)
+    visible = _visible_viewkeys(body)
+    hidden_classes = _hidden_classes(body)
+
+    # 站点自述每页条数（div.videopaging：视频 1 - 24 的 N）
+    self_reported = re.search(r"<div class=\"videopaging\">[^<]*?-\s*(\d+)", body)
+    expected = int(self_reported.group(1)) if self_reported else 24
+
+    unique_visible = set(visible)
+    ok = (
+        len(visible) == expected
+        and len(unique_visible) == len(visible)
+        and len(raw) > len(visible)
+    )
+    print(f"  隐藏类 {sorted(hidden_classes)} | 卡片出现 {len(raw)} 次 | "
+          f"可见 {len(visible)} 条（去重后 {len(unique_visible)}） | 站点自述 {expected} | "
+          f"{'PASS' if ok else 'FAIL'}")
+    return [] if ok else ["列表卡片可见性"]
+
+
 def main():
     parser = argparse.ArgumentParser(description="91porn 接口健康巡检")
     parser.add_argument(
@@ -269,14 +333,16 @@ def main():
     failures += check_list()
     print("\n[2] 分页")
     failures += check_pagination()
-    print("\n[3] 搜索")
+    print("\n[3] 列表卡片可见性（CSS 隐藏的错位卡片）")
+    failures += check_colocated()
+    print("\n[4] 搜索")
     failures += check_search()
-    print("\n[4] 会话预热与详情解析")
+    print("\n[5] 会话预热与详情解析")
     warm_failures, stream = check_warmup(args.viewkey)
     failures += warm_failures
-    print("\n[5] 直链可用性")
+    print("\n[6] 直链可用性")
     failures += check_stream(stream)
-    print("\n[6] 诱饵源过滤")
+    print("\n[7] 诱饵源过滤")
     failures += check_decoy()
 
     print("\n" + "-" * 78)

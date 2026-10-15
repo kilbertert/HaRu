@@ -160,6 +160,76 @@ void main() {
 
       expect(Porn91Parser.videoList(source), isEmpty);
     });
+
+    test('丢弃被 CSS 隐藏的错位卡片，只保留浏览器里可见的那一组', () {
+      // 站点在列表页里追加一组 `col-lg-8` 卡片，整组把真实卡片打乱后复制，
+      // 并在页面末尾用 display:none 隐藏它们。组内自洽（封面与标题来自
+      // 同一条**别的**视频），所以只能按 CSS 过滤，不能按内容判断。
+      const source = '''
+<html><head><style>
+    .col-lg-8 {
+        display: none;
+    }
+</style></head><body>
+<div class="row">
+  <div class="col-xs-12 col-sm-4 col-md-3 col-lg-3">
+    <div class="well well-sm videos-text-align">
+      <a href="https://91porn.com/view_video.php?viewkey=visible-a&viewtype=basic">
+        <img class="img-responsive" src="https://cdn.example/thumb/111.jpg" />
+        <span class="duration">00:01:00</span>
+        <span class="video-title title-truncate m-t-5">可见标题甲</span>
+      </a>
+    </div>
+  </div>
+  <div class="col-xs-12 col-sm-4 col-md-3 col-lg-8">
+    <div class="well well-sm videos-text-align">
+      <a href="https://91porn.com/view_video.php?viewkey=hidden-a&viewtype=basic">
+        <img class="img-responsive" src="https://cdn.example/thumb/222.jpg" />
+        <span class="duration">00:02:00</span>
+        <span class="video-title title-truncate m-t-5">隐藏标题乙</span>
+      </a>
+    </div>
+  </div>
+  <div class="col-xs-12 col-sm-4 col-md-3 col-lg-3">
+    <div class="well well-sm videos-text-align">
+      <a href="https://91porn.com/view_video.php?viewkey=visible-b&viewtype=basic">
+        <img class="img-responsive" src="https://cdn.example/thumb/333.jpg" />
+        <span class="duration">00:03:00</span>
+        <span class="video-title title-truncate m-t-5">可见标题丙</span>
+      </a>
+    </div>
+  </div>
+</div>
+</body></html>
+''';
+
+      final videos = Porn91Parser.videoList(source);
+
+      expect(videos.map((v) => v.id), ['visible-a', 'visible-b']);
+      expect(videos.map((v) => v.title), ['可见标题甲', '可见标题丙']);
+      expect(videos.map((v) => v.thumbnailUrl), [
+        'https://cdn.example/thumb/111.jpg',
+        'https://cdn.example/thumb/333.jpg',
+      ]);
+    });
+
+    test('页面没有隐藏样式时不做任何过滤', () {
+      // 搜索页与旧版列表页本来就只有一组卡片，不能被误伤。
+      const source = '''
+<html><body>
+<div class="col-lg-8">
+  <div class="well well-sm videos-text-align">
+    <a href="https://91porn.com/view_video.php?viewkey=only&viewtype=basic">
+      <img src="https://cdn.example/thumb/444.jpg" />
+      <span class="video-title">唯一标题</span>
+    </a>
+  </div>
+</div>
+</body></html>
+''';
+
+      expect(Porn91Parser.videoList(source).map((v) => v.id), ['only']);
+    });
   });
 
   group('videoDetails', () {
